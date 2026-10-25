@@ -1,0 +1,9 @@
+out/
+quiz/vo/
+*.wav
+*.timing.js
+.chrome*/
+hw-*/
+qz-*/
+character/
+__pycache__/

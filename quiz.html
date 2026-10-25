@@ -1,0 +1,179 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Quiz reel</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800;900&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@500;600;700;800&display=block" rel="stylesheet">
+<style>
+/* Rapid-fire quiz reel, paper look (same page as mag.html; the old orange look is quiz-bold.html): 4 floating answer cards,
+   a 3-second ticking ring, then the right card turns green with a check. The robot (robot.js) sits under the cards and
+   reacts: thinks while the timer runs, cheers or gasps at the answer. Data + timeline: quiz/<id>.timing.js (quiz/build.py). */
+:root{--paper:#efe8dc;--ink:#141210;--acc:#d9541a;--mute:#8a8073;--white:#fffaf2;--green:#16a34a;--green2:#0f7a37}
+html,body{margin:0;background:var(--paper);overflow:hidden}
+#stage{position:relative;width:1080px;height:1920px;overflow:hidden;font-family:'Inter Tight',sans-serif;color:var(--ink);background:
+  radial-gradient(rgba(20,18,16,.07) 1.6px,transparent 1.7px) 0 0/34px 34px,
+  radial-gradient(120% 80% at 50% 30%,#f6f0e6 0%,var(--paper) 60%,#e2d8c8 100%)}
+.a{position:absolute}
+.scene{position:absolute;inset:0;opacity:0;--mute:#8a8073;--hl:var(--acc);--edge:var(--ink)}
+.kick{top:96px;font:700 28px 'JetBrains Mono',monospace;letter-spacing:.06em;color:var(--mute);z-index:3}
+.h{font-weight:800;letter-spacing:-.035em;line-height:1.02}
+.hl{font:400 1.16em/0.9 'Instrument Serif',serif;font-style:italic;color:var(--acc);letter-spacing:-.01em}
+.tag{font:700 28px 'JetBrains Mono',monospace;letter-spacing:.12em;display:inline-block;padding:10px 18px;border-radius:10px;background:var(--ink);color:var(--paper);white-space:nowrap}
+.qtext{font:800 66px/1.06 'Inter Tight';letter-spacing:-.03em}
+.box{box-sizing:border-box;border:3px solid var(--ink);border-radius:24px;background:var(--white);color:var(--ink);box-shadow:0 18px 34px rgba(40,25,10,.18),0 4px 10px rgba(40,25,10,.12);display:flex;align-items:center;gap:26px;padding:0 26px;opacity:0}
+.box .lt{flex:none;width:68px;height:68px;border-radius:50%;background:var(--acc);color:#fff;display:flex;align-items:center;justify-content:center;font:800 38px 'Inter Tight'}
+.box .ot{flex:1;font:700 44px/1.12 'Inter Tight';letter-spacing:-.02em}
+.box .ot.code{font:700 38px/1.18 'JetBrains Mono',monospace;letter-spacing:-.02em}
+.box .ck{flex:none;width:72px;height:72px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;opacity:0}
+.box.ok{border-color:var(--green2);background:#e6f7ea;box-shadow:0 18px 34px rgba(15,122,55,.25)}
+.box.ok .lt{background:var(--green)}
+.timer{width:150px;height:150px}
+.timer svg{position:absolute;inset:0}
+.timer b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:800 72px 'Inter Tight';letter-spacing:-.04em}
+.why{font:600 34px/1.3 'JetBrains Mono',monospace;color:var(--mute);opacity:0}
+.why b{color:var(--green);font-weight:700}
+#flash{inset:0;background:#fff;opacity:0;z-index:9}
+#bot{left:0;top:0;width:1080px;height:1920px;z-index:4}
+</style></head>
+<body>
+<div id="stage"><div class="a kick" style="left:70px">// mish.builds</div><div class="a kick" id="kick" style="right:70px"></div>
+<div id="scenes"></div><div id="bot" class="a"></div><div id="flash" class="a"></div></div>
+<script src="robot.js"></script>
+<script>
+const $ = id => document.getElementById(id)
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x))
+const p = (t, a, b) => clamp((t - a) / (b - a))
+const eo = x => 1 - Math.pow(1 - x, 3)
+const back = x => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2) }
+const lerp = (a, b, k) => a + (b - a) * k
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const rich = s => s.split('\n').map(l => esc(l).replace(/&lt;hl&gt;(.*?)&lt;\/hl&gt;/g, '<span class="hl">$1</span>')).join('<br>')
+const params = new URLSearchParams(location.search)
+const CHECK = `<svg width="46" height="46" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+const BOX_TOP = 690, BOX_H = 124, BOX_GAP = 36
+let Z, T, S = {}
+
+function build() {
+  const root = $('scenes')
+  const add = (cls, html) => { const d = document.createElement('div'); d.className = 'scene ' + cls; d.innerHTML = html; root.appendChild(d); return d }
+  S.intro = add('', `<div class="a tag" style="left:76px;top:300px">DEVOPS QUIZ · ${esc(Z.topic.toUpperCase())}</div>
+    <div class="a h il" style="left:70px;top:400px;width:950px;font-size:${Z.topic.length > 8 ? 124 : 140}px">${rich(Z.intro)}</div>`)
+  S.qs = Z.qs.map((q, i) => {
+    const d = add('', `
+      <div class="a tag qt" style="left:70px;top:262px">QUESTION ${i + 1}/${Z.qs.length}</div>
+      <div class="a timer" style="left:866px;top:214px"><svg viewBox="0 0 150 150"><circle cx="75" cy="75" r="62" fill="none" stroke="currentColor" stroke-opacity=".18" stroke-width="14"/>
+        <circle class="ring" cx="75" cy="75" r="62" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" transform="rotate(-90 75 75)" stroke-dasharray="389.6"/></svg><b>3</b></div>
+      <div class="a qtext" style="left:70px;top:410px;width:930px">${esc(q.q)}</div>
+      ${q.opts.map((o, k) => `<div class="a box" style="left:70px;top:${BOX_TOP + k * (BOX_H + BOX_GAP)}px;width:930px;height:${BOX_H}px">
+        <span class="lt">${'ABCD'[k]}</span><span class="ot${q.code ? ' code' : ''}">${esc(o)}</span><span class="ck">${CHECK}</span></div>`).join('')}
+      <div class="a why" style="left:70px;top:${BOX_TOP + 4 * (BOX_H + BOX_GAP) + 4}px;width:930px"><b>✓ ${'ABCD'[q.ok]}.</b> ${esc(q.why)}</div>`)
+    return { d, qt: d.querySelector('.qt'), qx: d.querySelector('.qtext'), timer: d.querySelector('.timer'), ring: d.querySelector('.ring'), num: d.querySelector('.timer b'),
+      boxes: [...d.querySelectorAll('.box')], why: d.querySelector('.why') }
+  })
+  S.outro = add('', `<div class="a tag o0" style="left:76px;top:300px">YOUR SCORE</div>
+    <div class="a h o1" style="left:70px;top:400px;width:950px;font-size:140px">How many<br>did you <span class="hl">get?</span></div>
+    <div class="a o2" style="left:74px;top:740px;width:930px;font:700 60px/1.15 'Inter Tight';letter-spacing:-.02em">Comment your score<br>out of ${Z.qs.length}.</div>
+    <div class="a o3" style="left:76px;top:960px;font:700 30px 'JetBrains Mono';letter-spacing:.06em;color:var(--mute)">follow for the next quiz</div>`)
+}
+
+function slam(el, lt, a, dy, d = .22) { const k = p(lt, a, a + d); el.style.opacity = k > 0 ? 1 : 0; el.style.transform = `translateY(${(1 - back(k)) * dy}px)` }
+
+function render(t) {
+  let flash = 0
+  // intro is the cover: fully there on frame 0, slow push-in
+  S.intro.style.opacity = t < T.intro[1] ? 1 : 0
+  S.intro.querySelector('.il').style.transform = `scale(${1 + p(t, 0, T.intro[1]) * .035})`
+  S.intro.querySelector('.il').style.transformOrigin = '0 50%'
+  Z.qs.forEach((q, i) => {
+    const X = S.qs[i], tt = T.qs[i], on = t >= tt.t0 && t < tt.t1
+    X.d.style.opacity = on ? 1 : 0                           // hard cuts, one question per shot
+    if (!on) return
+    const lt = t - tt.t0, [ta, tb] = tt.timer || T.timer, rev = lt >= tb
+    if (lt < 2 / 30) flash = .55
+    slam(X.qt, lt, 0, 40, .18); slam(X.qx, lt, .05, 70, .26); slam(X.timer, lt, .1, 40, .2)
+    // countdown ring: full at ta, empty at tb; digit 3 -> 2 -> 1, then a check
+    const left = clamp(tb - lt, 0, tb - ta), frac = left / (tb - ta)
+    X.ring.style.strokeDashoffset = (389.6 * (1 - frac)).toFixed(1)
+    X.timer.style.color = rev ? 'var(--green)' : left < 1 && lt >= ta ? 'var(--acc)' : ''
+    X.num.innerHTML = rev ? '✓' : String(lt < ta ? 3 : Math.min(3, Math.ceil(left - 1e-6)))
+    const beat = lt >= ta && !rev ? Math.max(0, 1 - ((lt - ta) % 1) / .18) : 0
+    const tScale = rev ? 1 + .25 * (1 - eo(p(lt, tb, tb + .3))) : 1 + .1 * beat
+    X.timer.style.transform = `${X.timer.style.transform.split('scale')[0]} scale(${tScale.toFixed(3)})`
+    X.boxes.forEach((b, k) => {
+      const kin = p(lt, (tt.box || T.box)[k], (tt.box || T.box)[k] + .3), ok = k === q.ok
+      b.style.opacity = kin > 0 ? (rev && !ok ? lerp(1, .28, eo(p(lt, tb, tb + .2))) : 1) : 0
+      // floating: every box drifts on its own slow path
+      const fx = Math.sin(t * 1.15 + k * 1.9 + i) * 9, fy = Math.sin(t * 1.45 + k * 2.6) * 7, fr = Math.sin(t * .95 + k * 2.2 + i) * .9
+      const ex = (1 - eo(kin)) * (k % 2 ? 260 : -260), es = lerp(.7, 1, back(kin))
+      const ps = ok && rev ? 1 + .07 * Math.sin(Math.PI * p(lt, tb, tb + .35)) + .02 * eo(p(lt, tb, tb + .35)) : 1
+      b.style.transform = `translate(${(fx + ex).toFixed(1)}px, ${fy.toFixed(1)}px) rotate(${fr.toFixed(2)}deg) scale(${(es * ps).toFixed(3)})`
+      b.classList.toggle('ok', ok && rev)
+      const ck = b.querySelector('.ck'), kc = p(lt, tb + .05, tb + .3)
+      ck.style.opacity = ok && kc > 0 ? 1 : 0; ck.style.transform = `scale(${ok ? lerp(.3, 1, back(kc)) : 1}) rotate(${ok ? lerp(-40, 0, eo(kc)) : 0}deg)`
+    })
+    if (rev && lt < tb + 2 / 30) flash = .35
+    const kw = p(lt, tt.why ?? T.why, (tt.why ?? T.why) + .3); X.why.style.opacity = eo(kw); X.why.style.transform = `translateY(${(1 - eo(kw)) * 30}px)`
+  })
+  const oOn = t >= T.outro[0]
+  S.outro.style.opacity = oOn ? 1 : 0
+  if (oOn) {
+    const lt = t - T.outro[0]
+    if (lt < 2 / 30) flash = .55
+    slam(S.outro.querySelector('.o0'), lt, 0, 40, .18); slam(S.outro.querySelector('.o1'), lt, .06, 90, .3)
+    slam(S.outro.querySelector('.o2'), lt, .45, 50, .25); slam(S.outro.querySelector('.o3'), lt, .8, 30, .25)
+  }
+  $('flash').style.opacity = flash * .5
+  const f = Math.round(t * 30), amp = (Z.mouth || [])[f] || 0
+  BOT.render(t, amp, amp > .05, CUES, -1)
+  return true
+}
+// the robot's poses follow the quiz: counts the questions, thinks while the clock runs, reacts to each answer
+let BOT, CUES = []
+function cues() {
+  const c = [{ t: 0, pose: 'count' }], react = ['thumbs-up', 'shocked', 'thumbs-up', 'wow']
+  T.qs.forEach((q, i) => { const [ta, tb] = q.timer || T.timer
+    c.push({ t: q.t0, pose: 'explain' }, { t: q.t0 + ta, pose: 'skeptical' }, { t: q.t0 + tb, pose: react[i % react.length] }) })
+  c.push({ t: T.outro[0], pose: 'present' }, { t: T.outro[0] + 1.4, pose: 'thumbs-up' })
+  return c
+}
+
+function checkLayout() {
+  const issues = [], all = [...document.querySelectorAll('.scene')]
+  all.forEach(d => { d.dataset.op = d.style.opacity; d.style.opacity = 1 })
+  document.querySelectorAll('.box, .why').forEach(b => { b.dataset.op = b.style.opacity; b.style.opacity = 1 })
+  Z.qs.forEach((q, i) => {
+    const X = S.qs[i], qr = X.qx.getBoundingClientRect(), lh = parseFloat(getComputedStyle(X.qx).lineHeight)
+    if (Math.round(X.qx.scrollHeight / lh) > 3) issues.push(`q${i + 1}: question over 3 lines`)
+    if (qr.bottom > BOX_TOP - 24) issues.push(`q${i + 1}: question bottom ${qr.bottom.toFixed(0)} hits the boxes`)
+    if (X.qt.getBoundingClientRect().right > X.timer.getBoundingClientRect().left - 20) issues.push(`q${i + 1}: tag hits timer`)
+    X.boxes.forEach((b, k) => {
+      const ot = b.querySelector('.ot'), olh = parseFloat(getComputedStyle(ot).lineHeight)
+      if (Math.round(ot.scrollHeight / olh) > 2) issues.push(`q${i + 1}${'ABCD'[k]}: option over 2 lines`)
+      if (ot.scrollWidth > ot.clientWidth + 1) issues.push(`q${i + 1}${'ABCD'[k]}: option too wide`)
+      if (b.scrollHeight > b.clientHeight + 1) issues.push(`q${i + 1}${'ABCD'[k]}: box overflows`)
+    })
+    const wr = X.why.getBoundingClientRect()
+    if (wr.bottom > 1450) issues.push(`q${i + 1}: why line bottom ${wr.bottom.toFixed(0)} (IG caption zone)`)
+  })
+  document.querySelectorAll('.il, .o1, .o2, .o3').forEach(el => { const r = el.getBoundingClientRect(); if (r.right > 1020.5 || r.bottom > 1400) issues.push(`${el.className}: right ${r.right.toFixed(0)}, bottom ${r.bottom.toFixed(0)}`) })
+  const il = S.intro.querySelector('.il'), want = Z.intro.split('\n').length, got = Math.round(il.scrollHeight / parseFloat(getComputedStyle(il).lineHeight))
+  if (got !== want) issues.push(`intro: ${got} lines, expected ${want}`)
+  if (S.qs.some(X => X.why.getBoundingClientRect().bottom > 1440)) issues.push('why line runs into the robot')
+  document.querySelectorAll('.box, .why').forEach(b => { b.style.opacity = b.dataset.op })
+  all.forEach(d => { d.style.opacity = d.dataset.op })
+  return issues
+}
+
+function sfxEvents() { return [] }   // sound is built by quiz/build.py from the same timeline
+
+const load = src => new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error(src)); document.head.appendChild(sc) })
+async function boot() {
+  await load(`quiz/${params.get('cfg')}.timing.js`); Z = window.QUIZ; T = Z.T
+  await Promise.all(['400 100px "Instrument Serif"', '900 100px "Inter Tight"', '800 44px "Inter Tight"', '800 38px "JetBrains Mono"', '700 34px "JetBrains Mono"'].map(f => document.fonts.load(f)))
+  await document.fonts.ready
+  build(); $('kick').textContent = 'DEVOPS QUIZ'
+  BOT = await Robot($('bot'), { fx: 540, fy: 1660, sw: 200 }); CUES = cues()
+  window.DURATION = T.end; window.LAYOUT = checkLayout(); render(0); window.READY = true
+}
+window.render = render
+boot()
+</script>
+</body></html>

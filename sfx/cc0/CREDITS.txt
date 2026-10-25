@@ -1,0 +1,6 @@
+whoosh.mp3 | Swipe Whoosh (freesound 60007) | CC0 | https://cdn.freesound.org/previews/60/60007_71257-hq.mp3
+pop.mp3 | Pop 2 (freesound 244654) | CC0 | https://cdn.freesound.org/previews/244/244654_3624044-hq.mp3
+tick.mp3 | UI Button Click (freesound 467951) | CC0 | https://cdn.freesound.org/previews/467/467951_6769414-hq.mp3
+blip.mp3 | Blip_C_04 (freesound 350862) | CC0 | https://cdn.freesound.org/previews/350/350862_5450487-hq.mp3
+music.mp3 | Chill Lofi Melody Loop 95 BPM (freesound 629147) | CC0 | https://cdn.freesound.org/previews/629/629147_12574855-hq.mp3
+music2.mp3 | Chill Lofi Epiano Loop 80 BPM (freesound 629170) | CC0 | https://cdn.freesound.org/previews/629/629170_12574855-hq.mp3

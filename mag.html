@@ -1,0 +1,87 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Magazine reel</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@700;800&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@600;700&display=block" rel="stylesheet">
+<style>
+/* "Magazine" reels (mag/build.py writes the timeline): cream page, the spoken phrase as the headline with key words in orange
+   italics, a real screenshot or text card in the middle, and the talking robot (robot.js) underneath. ?cfg=<id> */
+:root{--paper:#efe8dc;--ink:#141210;--acc:#d9541a;--mute:#8a8073}
+html,body{margin:0;overflow:hidden;background:var(--paper)}
+#stage{position:relative;width:1080px;height:1920px;overflow:hidden;background:
+  radial-gradient(rgba(20,18,16,.07) 1.6px,transparent 1.7px) 0 0/34px 34px,
+  radial-gradient(120% 80% at 50% 30%,#f6f0e6 0%,var(--paper) 60%,#e2d8c8 100%)}
+.a{position:absolute}
+.kick{top:96px;font:700 28px 'JetBrains Mono',monospace;letter-spacing:.06em;color:var(--mute)}
+#h{left:70px;right:70px;top:190px;font:800 102px/1.02 'Inter Tight',sans-serif;letter-spacing:-.035em;color:var(--ink)}
+#h .ph{display:inline;transition:none}
+#h i{font:400 1.16em/0.9 'Instrument Serif',serif;font-style:italic;color:var(--acc);letter-spacing:-.01em}
+#card{left:0;right:0;top:640px;height:600px;display:flex;align-items:center;justify-content:center}
+.c{position:relative;border-radius:30px;box-shadow:0 30px 60px rgba(40,25,10,.28),0 6px 14px rgba(40,25,10,.18)}
+.c img{display:block;width:900px;border-radius:30px;border:3px solid #141210}
+.lbl{position:absolute;left:0;top:-58px;font:700 26px 'JetBrains Mono',monospace;color:var(--mute);white-space:nowrap}
+.lbl b{background:var(--ink);color:var(--paper);padding:5px 12px;border-radius:8px;margin-right:12px;font-weight:700}
+.list{background:#fffaf2;border:3px solid var(--ink);padding:34px 46px;display:flex;flex-direction:column;gap:22px}
+.row{font:700 54px 'JetBrains Mono',monospace;color:var(--ink);display:flex;align-items:center;gap:26px}
+.row span{display:inline-flex;align-items:center;justify-content:center;width:70px;height:70px;border-radius:50%;background:var(--acc);color:#fff;font-size:40px}
+.toast{background:#1c1b1a;border:3px solid var(--ink);color:#f3efe8;padding:34px 40px;width:880px;box-sizing:border-box;font:600 40px/1.3 'JetBrains Mono',monospace}
+.toast b{color:#f5b041;margin-right:16px}
+#bot{left:0;top:0;width:1080px;height:1920px}
+</style></head>
+<body><div id="stage">
+<div class="a kick" style="left:70px">// mish.builds</div><div class="a kick" id="kick" style="right:70px"></div>
+<div id="h" class="a"></div><div id="card" class="a"></div><div id="bot" class="a"></div></div>
+<script src="robot.js"></script>
+<script>
+const id = new URLSearchParams(location.search).get('cfg'), $ = s => document.getElementById(s)
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x)), p = (t, a, b) => clamp((t - a) / (b - a))
+const back = x => { const c1 = 1.6, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2) }
+let M, bot, cards = []
+function cardHTML(c) {
+  if (!c) return ''
+  const lbl = c.label ? `<div class="lbl"><b>REAL</b>${c.label}</div>` : ''
+  if (c.type === 'img') return `<div class="c">${lbl}<img src="${c.src}"></div>`
+  if (c.type === 'list') return `<div class="c list">${c.items.map((x, i) => `<div class="row" data-i="${i}"><span>${i + 1}</span>${x}</div>`).join('')}</div>`
+  if (c.type === 'toast') return `<div class="c toast">${c.label ? `<div class="lbl">${c.label}</div>` : ''}<b>▲</b>${c.text}</div>`
+  return ''
+}
+window.render = t => {
+  // headline: the whole spoken line builds up phrase by phrase (unsaid phrases hold their place, invisible);
+  // the first line is fully on screen from frame 0, it is the cover
+  let L = M.lines[0]; for (const l of M.lines) if (t >= l.t0 - .05) L = l
+  const li = M.lines.indexOf(L), h = $('h')
+  if (h.dataset.k !== String(li)) { h.innerHTML = L.phrases.map(ph => `<span class="ph">${ph.html} </span>`).join(''); h.style.fontSize = L.fs + 'px'; h.dataset.k = String(li) }
+  ;[...h.children].forEach((sp, j) => {
+    const k = li === 0 ? 1 : back(p(t, L.phrases[j].t - .03, L.phrases[j].t + .2))
+    sp.style.opacity = clamp(k * 1.5); sp.style.display = 'inline'; sp.style.position = 'relative'; sp.style.top = `${(1 - k) * 30}px`
+  })
+  // card of the current line: pops in with a small tilt, floats gently
+  const c = cards[li]
+  cards.forEach((el, i) => { if (el) el.style.display = i === li ? 'flex' : 'none' })
+  if (c) {
+    const kc = back(p(t, L.t0 - .05, L.t0 + .3)), inner = c.firstElementChild
+    inner.style.transform = `translateY(${(1 - kc) * 120 + Math.sin(t * 1.3) * 6}px) rotate(${-2.2 + (1 - kc) * -6 + Math.sin(t * .9) * .6}deg) scale(${.9 + .1 * kc})`
+    inner.style.opacity = clamp(kc * 2)
+    c.querySelectorAll('.row').forEach(r => { const kk = back(p(t, L.t0 + .25 + r.dataset.i * .45, L.t0 + .5 + r.dataset.i * .45)); r.style.opacity = clamp(kk * 2); r.style.transform = `translateX(${(1 - kk) * -80}px)` })
+  }
+  const f = Math.round(t * 30), a = M.mouth[f] || 0, talking = M.lines.some(l => t >= l.t0 && t <= l.t1)
+  bot.render(t, a, talking, M.poses, -1)
+  return true
+}
+const s = document.createElement('script'); s.src = `mag/${id}.timing.js`
+s.onload = async () => {
+  M = window.MAG; window.DURATION = M.end; $('kick').textContent = M.kicker || ''
+  cards = M.lines.map(l => { if (!l.scene.card) return null; const d = document.createElement('div'); d.style.cssText = 'position:absolute;inset:0;display:none;align-items:center;justify-content:center'; d.innerHTML = cardHTML(l.scene.card); $('card').appendChild(d); return d })
+  bot = await Robot($('bot'), { fx: 540, fy: 1520, sw: 250 })
+  await document.fonts.ready
+  await Promise.all([...document.images].map(i => i.complete ? 1 : new Promise(r => { i.onload = r; i.onerror = r })))
+  const issues = []                                                   // each line's headline: biggest size that fits above the card
+  for (const l of M.lines) {
+    $('h').innerHTML = l.phrases.map(ph => `<span class="ph">${ph.html} </span>`).join('')
+    for (l.fs = 104; l.fs > 60; l.fs -= 4) { $('h').style.fontSize = l.fs + 'px'; if ($('h').offsetTop + $('h').offsetHeight <= 600) break }
+    if ($('h').offsetTop + $('h').offsetHeight > 600) issues.push('headline too tall: ' + l.phrases.map(x => x.html).join(' '))
+  }
+  $('h').dataset.k = ''
+  window.LAYOUT = issues; render(0); window.READY = true
+}
+document.head.appendChild(s)
+</script></body></html>
