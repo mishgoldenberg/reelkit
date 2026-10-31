@@ -8,7 +8,7 @@ import path from 'node:path'
 export const DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1'))
 const DAY = 24 * 3600 * 1000
 // only names reelkit itself creates: <prefix>-<anything>, the layout-check stills and the per-run Chrome profiles
-const FRAME_DIR = /^(?:(?:fd|fb|fq|qz|gr|hw|V|P)-[\w.-]+|fr\d+u?)$/   // fd-x-123456, fd-pre, qz-test, V-en, P-aws-u, fr2, fr2u
+const FRAME_DIR = /^(?:(?:fd|fb|fq|qz|gr|hw|sh|V|P)-[\w.-]+|fr\d+u?)$/   // fd-x-123456, fd-pre, qz-test, sh-enter-123456, V-en, P-aws-u, fr2, fr2u
 const PROFILE_DIR = /^\.chrome(-[\w.]+)*$/
 
 function inside(name) {

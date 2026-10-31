@@ -33,10 +33,10 @@ try {
   const ev = async x => { const r = await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true }); if (r.result?.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails)); return r.result?.result?.value }
   await send('Emulation.setDeviceMetricsOverride', { width: 1080, height: 1920, deviceScaleFactor: 1, mobile: false })
   if (E.TRANSPARENT) await send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } }) // overlays with alpha
-  await send('Page.navigate', { url: pathToFileURL(path.join(dir, E.HTML ?? 'reelkit.html')).href + `?cfg=${E.CFG}&cta=${E.CTA ?? 'ig'}` })
+  await send('Page.navigate', { url: pathToFileURL(path.join(dir, E.HTML ?? 'reelkit.html')).href + `?cfg=${E.CFG}&cta=${E.CTA ?? 'ig'}${E.QS ? '&' + E.QS : ''}` })
   let ready = false
   for (let i = 0; i < 600 && !ready; i++) { ready = await ev('window.READY === true').catch(() => false); if (!ready) await new Promise(r => setTimeout(r, 100)) }
-  if (!ready) throw new Error("page never became ready (60 s)")
+  if (!ready) throw new Error("page never became ready (60 s)" + (await ev('JSON.stringify(window.ERR || [])').catch(() => '')))
   await ev('document.fonts.ready.then(() => 1)')
   if (E.HTML) console.log('layout:', JSON.stringify(await ev('window.LAYOUT')))
   if (E.EVENTS) writeFileSync(E.EVENTS, JSON.stringify(await ev('window.EVENTS || []'))) // sound-effect cues for sfx.py

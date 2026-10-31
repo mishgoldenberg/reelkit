@@ -1,0 +1,12 @@
+In this repo (used by show3d.html):
+cardboard_box_01 (1k glTF) - Poly Haven (polyhaven.com/a/cardboard_box_01), CC0
+studio_small_09 HDRI (1k .hdr) - Poly Haven (polyhaven.com/a/studio_small_09), CC0
+three.js r180 (only the files show3d.html imports) - MIT (vendor/three/LICENSE)
+
+Not in this repo, download them into models/<name>/ for the Blender reels (cgi/):
+marble_bust_01 (2k .blend + textures/) - Poly Haven (polyhaven.com/a/marble_bust_01), CC0              faceid
+circuit_board (2k .blend + textures/) - Poly Haven (polyhaven.com/a/circuit_board), CC0                ask
+coast_rocks_01, coast_rocks_03, boulder_01, lambis_shell (2k glTF + textures/) - Poly Haven, CC0       ocean
+coast_sand_01 (2k jpgs: diff, disp, nor_gl, rough, right in the folder) - Poly Haven (polyhaven.com/a/coast_sand_01), CC0  ocean
+Rigged Bull Shark - nerk987 (blendswap.com/blend/20570), CC-BY 4.0: credit the author in the caption   ocean
+  (models/bull_shark/src/BullShark.blend, objects 'rig' and 'LowPoly')

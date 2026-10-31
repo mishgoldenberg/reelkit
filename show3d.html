@@ -1,0 +1,256 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Show-it reel 3D</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;800&family=JetBrains+Mono:wght@500;700;800&display=block" rel="stylesheet">
+<style>
+/* "Show it" reels in real 3D (show/build.py writes the timeline, same as show.html). This is the shared shell: renderer,
+   light, floor, bloom, shared models (scanned parcel, server rack) and the overlay (live counter, word captions, the robot).
+   Each reel's world lives in show3d/<cfg>.js and returns { steps, shot(scene, s, d) -> [camPos, target], update(t, scene, s, d, cam) }.
+   Every frame is a pure function of t, so frames can be rendered in any order by parallel workers. */
+:root{--bg:#05070b;--c:#3ee6ff;--ok:#7dffa8;--ink:#e9f1f7;--mute:#6b7a8a}
+html,body{margin:0;overflow:hidden;background:var(--bg)}
+/* ?overlay=1: only the 2D layer on a transparent page, to sit on top of frames rendered elsewhere (Blender) */
+.ov,.ov body,.ov #stage{background:transparent!important}.ov #gl{display:none}
+#stage{position:relative;width:1080px;height:1920px;overflow:hidden;background:var(--bg)}
+#gl{position:absolute;left:0;top:0;width:1080px;height:1920px}
+.a{position:absolute}
+#shadeT{left:0;right:0;top:0;height:560px;background:linear-gradient(rgba(5,7,11,.92) 0%,rgba(5,7,11,.75) 55%,transparent 100%);z-index:2}
+#shadeB{left:0;right:0;bottom:0;height:720px;background:linear-gradient(transparent 0%,rgba(5,7,11,.8) 35%,rgba(5,7,11,.95) 100%);z-index:2}
+.kick{top:70px;font:700 26px 'JetBrains Mono',monospace;letter-spacing:.08em;color:var(--mute);z-index:3}
+#ctr{left:0;right:0;top:140px;text-align:center;z-index:3}
+#num{font:800 210px/1 'JetBrains Mono',monospace;color:var(--ink);letter-spacing:-.04em;font-variant-numeric:tabular-nums;text-shadow:0 0 40px rgba(0,0,0,.6)}
+#num small{font-size:.333em;color:var(--mute);margin-left:14px;letter-spacing:0}
+#bar{display:flex;gap:10px;width:920px;margin:26px auto 0}
+.seg{flex:1;height:14px;border-radius:7px;background:#121a24;overflow:hidden;position:relative}
+.seg i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--c);box-shadow:0 0 16px var(--c)}
+#labs{display:flex;gap:10px;width:920px;margin:12px auto 0}
+#labs span{flex:1;font:700 24px 'JetBrains Mono',monospace;color:var(--mute);letter-spacing:.06em}
+#labs span.on{color:var(--c)}
+#ill{font:500 20px 'JetBrains Mono',monospace;color:#3b4654;margin-top:10px;letter-spacing:.05em}
+#cap{left:70px;right:70px;top:1330px;font:800 78px/1.15 'Inter Tight',sans-serif;letter-spacing:-.02em;color:var(--ink);z-index:4;text-align:center}
+#cap span{display:inline-block;margin:0 .13em;padding:0 .12em;border-radius:12px;color:#3a4553}
+#cap span.said{color:var(--ink)}
+#cap span.hot.said{color:var(--c)}
+#cap span.now,#cap span.now.hot{background:var(--c);color:#04121a}
+#bot{left:0;top:0;width:1080px;height:1920px;z-index:3}
+#cta{left:110px;width:860px;top:600px;z-index:4;box-sizing:border-box;padding:34px 40px 40px;border-radius:40px;background:rgba(12,18,27,.95);border:2px solid #24344a;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 50px rgba(62,230,255,.18);display:none}
+#cta .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}
+#cta .h{font:800 52px 'JetBrains Mono',monospace;color:var(--c);letter-spacing:-.02em}
+#cta .f{padding:12px 28px;border-radius:999px;background:var(--c);color:#04121a;font:800 32px 'Inter Tight',sans-serif}
+#cta .k{font:700 24px 'JetBrains Mono',monospace;letter-spacing:.12em;color:var(--mute);margin-bottom:18px}
+#cta .ppl{display:flex;justify-content:space-between}
+#cta .p{width:170px;text-align:center;font:700 28px 'Inter Tight',sans-serif;color:#cfd8e3;position:relative}
+#cta .av{width:128px;height:128px;margin:0 auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:800 54px 'Inter Tight',sans-serif;color:#05070b;position:relative}
+#cta .av i{position:absolute;right:-4px;bottom:-4px;width:46px;height:46px;border-radius:50%;background:var(--c);color:#04121a;font:800 30px/46px 'Inter Tight',sans-serif;font-style:normal;transform:scale(0)}
+#cta .b{margin-top:30px;padding:22px;border-radius:22px;background:#1f6fff;color:#fff;text-align:center;font:800 38px 'Inter Tight',sans-serif}
+</style>
+<script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
+</head>
+<body><div id="stage">
+<canvas id="gl" width="1080" height="1920"></canvas>
+<div id="shadeT" class="a"></div><div id="shadeB" class="a"></div>
+<div class="a kick" style="left:70px">// mish.builds</div><div class="a kick" id="kick" style="right:70px"></div>
+<div id="ctr" class="a"><div id="num">0<small>ms</small></div>
+  <div id="bar"></div><div id="labs"></div><div id="ill">FIRST VISIT · VALUES ILLUSTRATIVE</div></div>
+<div id="cap" class="a"></div><div id="bot" class="a"></div>
+<div id="cta" class="a"><div class="top"><span class="h">@mish.builds</span><span class="f">+ Follow</span></div><div class="k">SEND TO</div><div class="ppl"></div><div class="b">Send</div></div></div>
+<script>window.ERR = []; addEventListener("error", e => ERR.push(String(e.message))); addEventListener("unhandledrejection", e => ERR.push(String(e.reason && (e.reason.stack || e.reason))))</script>
+<script src="robot.js"></script>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js'
+
+const id = new URLSearchParams(location.search).get('cfg'), $ = s => document.getElementById(s), OVER = new URLSearchParams(location.search).has('overlay')
+if (OVER) document.documentElement.classList.add('ov')
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x)), p = (t, a, b) => clamp((t - a) / (b - a))
+const ease = x => 1 - Math.pow(1 - x, 3), inout = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2
+const back = x => { const c1 = 1.6, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2) }
+const V = (x, y, z) => new THREE.Vector3(x, y, z)
+const hash = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s) }
+const CYAN = 0x3ee6ff, GREEN = 0x7dffa8
+
+await new Promise((ok, no) => { const s = document.createElement('script'); s.src = `show/${id}.timing.js`; s.onload = ok; s.onerror = no; document.head.appendChild(s) })
+const M = window.SHOW, BADGE = M.badges || {}, UNIT = M.unit || 'ms'
+
+// ---------- renderer, scene, light ----------
+const renderer = new THREE.WebGLRenderer({ canvas: $('gl'), antialias: true, preserveDrawingBuffer: true })
+renderer.setPixelRatio(1); renderer.setSize(1080, 1920, false)
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x05070b); scene.fog = new THREE.FogExp2(0x05070b, .035)
+const cam = new THREE.PerspectiveCamera(38, 1080 / 1920, .05, 200); cam.setViewOffset(1080, 1920, 0, 90, 1080, 1920)   // aim at the clear band between counter and captions
+const hdr = await new HDRLoader().loadAsync('models/hdri/studio_small_09_1k.hdr')
+const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(hdr).texture; scene.environmentIntensity = .55
+const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(-4, 12, 8); key.castShadow = true
+key.shadow.mapSize.set(2048, 2048); Object.assign(key.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 40 }); key.shadow.bias = -.0004
+scene.add(key, new THREE.HemisphereLight(0x9fdfff, 0x05070b, .35))
+const rim1 = new THREE.PointLight(CYAN, 30, 14, 2); rim1.position.set(2.5, 3.5, -5.5); scene.add(rim1)
+const rim2 = new THREE.PointLight(0x6a7dff, 18, 14, 2); rim2.position.set(-4.5, 3, 2); scene.add(rim2)
+
+// floor: dark satin with a fine cyan grid
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x0a0f16, roughness: .32, metalness: .55 }))
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor)
+const grid = new THREE.GridHelper(80, 160, 0x16324a, 0x0f1c2a); grid.position.y = .002; grid.material.transparent = true; grid.material.opacity = .55; scene.add(grid)
+
+// canvas-texture helpers (labels, screens, holograms)
+function canvasTex(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return { c, g: c.getContext('2d'), t } }
+function label(text, color = '#e9f1f7', h = .32) {
+  const { c, g, t } = canvasTex(512, 128)
+  g.font = "800 64px 'JetBrains Mono'"; const w = Math.min(500, g.measureText(text).width + 70)
+  g.fillStyle = 'rgba(8,13,20,.85)'; g.strokeStyle = color; g.lineWidth = 5; g.beginPath(); g.roundRect((512 - w) / 2, 22, w, 84, 42); g.fill(); g.stroke()
+  g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 66)
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, fog: false })); s.scale.set(h * 4, h, 1); return s
+}
+
+
+// shared models: the scanned parcel with an address tag, and a server rack (8 units, drive bays, blinking LEDs)
+const gltf = await new GLTFLoader().loadAsync('models/cardboard_box_01/cardboard_box_01_1k.gltf')
+function parcel(color) {
+  const g = new THREE.Group(), m = gltf.scene.clone(true)
+  const bb = new THREE.Box3().setFromObject(m), sz = bb.getSize(V()), k = .75 / Math.max(sz.x, sz.y, sz.z)
+  m.scale.setScalar(k); m.position.sub(bb.getCenter(V()).multiplyScalar(k)); m.traverse(o => { if (o.isMesh) o.castShadow = true }); g.add(m)
+  const tex = canvasTex(512, 256), lab = new THREE.Mesh(new THREE.PlaneGeometry(.5, .25), new THREE.MeshStandardMaterial({ map: tex.t, roughness: .8 }))
+  lab.position.set(0, 0, sz.z * k / 2 + .004); g.add(lab)
+  g.userData = { tex, color, k: sz.z * k }; scene.add(g); return g
+}
+function drawTag(box, top, main) {
+  const { g, t } = box.userData.tex; g.fillStyle = '#f2efe6'; g.fillRect(0, 0, 512, 256); g.fillStyle = box.userData.color; g.fillRect(0, 0, 512, 44)
+  g.font = "800 30px 'JetBrains Mono'"; g.fillStyle = '#05070b'; g.textBaseline = 'middle'; g.fillText(top, 18, 23)
+  g.font = "800 60px 'JetBrains Mono'"; g.fillText(main, 18, 150); t.needsUpdate = true
+}
+function makeRack(pos, rotY, name) {
+  const rack = new THREE.Group(); rack.position.copy(pos); rack.rotation.y = rotY; scene.add(rack)
+  const dark = new THREE.MeshStandardMaterial({ color: 0x14181e, metalness: .85, roughness: .35 })
+  const frame = new THREE.Mesh(new RoundedBoxGeometry(2.1, 4.4, 1.5, 4, .05), dark); frame.position.y = 2.2; frame.castShadow = frame.receiveShadow = true; rack.add(frame)
+  const unitMat = new THREE.MeshStandardMaterial({ color: 0x232a33, metalness: .8, roughness: .3 }), bayMat = new THREE.MeshStandardMaterial({ color: 0x0b0e12, roughness: .6 })
+  const leds = []
+  for (let u = 0; u < 8; u++) {
+    const unit = new THREE.Mesh(new RoundedBoxGeometry(1.86, .42, .1, 2, .02), unitMat); unit.position.set(0, .45 + u * .48, .76); rack.add(unit)
+    for (let b = 0; b < 6; b++) { const bay = new THREE.Mesh(new THREE.BoxGeometry(.2, .3, .02), bayMat); bay.position.set(-.75 + b * .24, .45 + u * .48, .82); rack.add(bay) }
+    for (let l = 0; l < 3; l++) {
+      const led = new THREE.Mesh(new THREE.CircleGeometry(.03, 12), new THREE.MeshBasicMaterial({ color: l === 0 ? GREEN : CYAN, toneMapped: false }))
+      led.position.set(.62 + l * .09, .45 + u * .48, .83); rack.add(led); leds.push({ led, u, l })
+    }
+  }
+  const lab = label(name, '#e9f1f7', .28); lab.position.set(0, 5.0, 0); rack.add(lab)
+  return { rack, leds, dark }
+}
+const WORLD = await (await import(`./show3d/${id}.js`)).default({ THREE, scene, V, clamp, p, ease, inout, back, hash, canvasTex, label, parcel, drawTag, makeRack, RoundedBoxGeometry, CYAN, GREEN })
+const STEPS = WORLD.steps, shot = WORLD.shot
+
+// ---------- post: bloom for everything that glows ----------
+const rt = new THREE.WebGLRenderTarget(1080, 1920, { samples: 4, type: THREE.HalfFloatType })
+const comp = new EffectComposer(renderer, rt); comp.setPixelRatio(1); comp.setSize(1080, 1920)
+// depth of field: whatever the camera looks at is sharp, the rest goes soft (focus set per frame)
+const bokeh = new BokehPass(scene, cam, { focus: 10, aperture: .0005, maxblur: .005 })
+comp.addPass(new RenderPass(scene, cam)); comp.addPass(bokeh); comp.addPass(new UnrealBloomPass(new THREE.Vector2(1080, 1920), .75, .55, .82)); comp.addPass(new OutputPass())
+
+// floating dust in the light (fixed seeds, drifts with t)
+const DUST = 420, dpos = new Float32Array(DUST * 3), dseed = Array.from({ length: DUST }, (_, i) => [hash(i, 11) * 18 - 9, hash(i, 12) * 8, hash(i, 13) * 20 - 11])
+const dotTex = (() => { const { g, t } = canvasTex(64, 64); const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return t })()
+const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(dpos, 3))
+scene.add(new THREE.Points(dustGeo, new THREE.PointsMaterial({ size: .05, map: dotTex, color: 0x9fdfff, transparent: true, opacity: .45, depthWrite: false, blending: THREE.AdditiveBlending })))
+// energy flowing along every route the world draws (top-level tubes): glowing beads that follow the tube's own opacity
+const flows = []
+for (const o of [...scene.children]) if (o.isMesh && o.geometry.type === 'TubeGeometry' && o.material.isMeshBasicMaterial) {
+  const path = o.geometry.parameters.path, beads = Array.from({ length: 6 }, () => { const b = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: o.material.color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false })); b.scale.setScalar(.22); scene.add(b); return b })
+  flows.push({ tube: o, path, beads, speed: .35 / Math.max(1, path.getLength() / 8) })
+}
+function effects(t) {
+  for (let i = 0; i < DUST; i++) { const [x, y, z] = dseed[i]; dpos[i * 3] = x + Math.sin(t * .3 + i) * .25; dpos[i * 3 + 1] = (y + t * .06 * (.5 + hash(i, 14))) % 8; dpos[i * 3 + 2] = z + Math.cos(t * .27 + i) * .25 }
+  dustGeo.attributes.position.needsUpdate = true
+  for (const f of flows) f.beads.forEach((b, i) => { const o = f.tube.material.opacity * f.tube.visible; b.visible = o > .05; if (!b.visible) return
+    b.position.copy(f.path.getPointAt((t * f.speed + i / f.beads.length) % 1)); b.material.opacity = Math.min(1, o * 2.4) })
+}
+
+window.render = t => {
+  let li = 0; M.lines.forEach((l, i) => { if (t >= l.t0 - .05) li = i })
+  const L = M.lines[li], s = t - L.t0, d = L.end - L.t0, n = L.scene
+  // camera: this scene's move, blended in from where the previous scene's move ended
+  let [cp, ct] = shot(n, Math.max(s, 0), d)
+  if (li > 0 && s < .8) { const P = M.lines[li - 1], [pp, pt] = shot(P.scene, P.end - P.t0, P.end - P.t0), k = inout(clamp(s / .8)); cp = pp.lerp(cp, k); ct = pt.lerp(ct, k) }
+  cam.position.copy(cp); cam.lookAt(ct)
+  WORLD.update(t, n, s, d, cam, L)
+  effects(t); bokeh.uniforms.focus.value = cam.position.distanceTo(ct)
+  if (!OVER) comp.render()
+
+  // ---------- 2D overlay: counter, step bar, captions, robot ----------
+  const from = li ? M.lines[li - 1].ms : 0, ms = Math.round(from + (L.ms - from) * ease(p(t, L.t0, L.t1)))
+  $('num').firstChild.nodeValue = ms >= 10000 ? ms.toLocaleString('en-US') : String(ms)
+  // the counter is big while it counts and shrinks out of the way while a line adds nothing; a line can show one fact instead
+  const size = i => { const l = M.lines[i], pv = i ? M.lines[i - 1].ms : 0
+    return BADGE[l.scene] ? 110 : l.ms !== pv || ['twist', 'cta', 'outro'].includes(l.scene) ? 210 : 90 }
+  $('num').style.fontSize = (li ? size(li - 1) + (size(li) - size(li - 1)) * ease(p(s, 0, .45)) : size(0)) + 'px'
+  const bd = BADGE[n], bw = bd && L.words.find(w => w.w.startsWith(bd[1])), showB = bw && t >= bw.t - .02
+  if (showB) $('num').firstChild.nodeValue = bd[0]
+  $('num').querySelector('small').style.display = showB ? 'none' : ''
+  $('num').querySelector('small').textContent = ms === 1 && UNIT.endsWith('s') ? UNIT.slice(0, -1) : UNIT   // 1 token, not 1 tokens
+  const segs = $('bar').children, labs = $('labs').children
+  STEPS.forEach(([, sid], i) => {
+    const lo = M.lines.find(l => l.scene === sid), prev = M.lines[M.lines.indexOf(lo) - 1].ms
+    segs[i].firstChild.style.width = (lo.ms > prev ? clamp((ms - prev) / (lo.ms - prev)) : p(t, lo.t0, lo.t1)) * 100 + '%'   // a step that adds no time fills as it is spoken; labs[i].className = n === sid ? 'on' : ''
+  })
+  $('num').style.color = showB || n === 'outro' || n === 'twist' || n === 'cta' ? 'var(--c)' : 'var(--ink)'
+  $('num').style.transform = n === 'outro' ? `scale(${1 + .12 * back(p(s, 0, .35))})` : n === 'cta' ? 'scale(1.12)' : ''
+  const W = L.words; let cur = -1; W.forEach((w, i) => { if (t >= w.t - .02) cur = i })
+  const ch = L.chunks.find(c => Math.max(cur, 0) >= c[0] && Math.max(cur, 0) <= c[1]), cap = $('cap'), kk = li + ':' + ch[0]
+  if (cap.dataset.k !== kk) { cap.innerHTML = W.slice(ch[0], ch[1] + 1).map(w => `<span${w.hot ? ' class="hot"' : ''}>${w.w}</span>`).join(' '); cap.dataset.k = kk; cap.dataset.t = String(W[ch[0]].t) }
+  const kc = li === 0 && ch[0] === 0 ? 1 : back(p(t, +cap.dataset.t - .04, +cap.dataset.t + .14)); cap.style.transform = `translateY(${(1 - kc) * 24}px)`; cap.style.opacity = clamp(kc * 2)
+  ;[...cap.children].forEach((sp, j) => { const i = ch[0] + j; sp.classList.toggle('said', i <= cur || li === 0 && t < .05); sp.classList.toggle('now', i === cur && t <= L.t1 + .1) })
+  // the follow card with the real handle pops up for the last line
+  // the share sheet: slides up, one friend gets picked, Send -> Sent (made-up names and initials, nobody real)
+  const kcta = n === 'cta' ? ease(p(s, -.05, .45)) : 0, cta = $('cta')
+  cta.style.display = kcta > .01 ? 'block' : 'none'; cta.style.opacity = clamp(kcta * 2); cta.style.transform = `translateY(${(1 - kcta) * 400}px)`
+  if (kcta > .01) { const pick = back(p(s, d * .38, d * .38 + .25)), sent = s > d * .62
+    cta.querySelector('.ppl').firstChild.querySelector('i').style.transform = `scale(${pick})`
+    const btn = cta.querySelector('.b'); btn.textContent = sent ? '✓ Sent' : 'Send'; btn.style.background = sent ? '#2a3442' : '#1f6fff'; btn.style.transform = `scale(${1 - .05 * Math.sin(Math.PI * p(s, d * .58, d * .66))})` }
+  const f = Math.round(t * 30), a = M.mouth[f] || 0, talking = M.lines.some(l => t >= l.t0 && t <= l.t1)
+  bot.render(t, a, talking, M.poses, -1)
+  return true
+}
+
+$('cta').querySelector('.ppl').innerHTML = [['A', 'Alex', '#3ee6ff'], ['D', 'Dana', '#7dffa8'], ['M', 'Maya', '#ffcf5a'], ['L', 'Leo', '#ff8a5a']]
+  .map(([c, nm, col]) => `<div class="p"><div class="av" style="background:${col}">${c}<i>✓</i></div>${nm}</div>`).join('')
+window.DURATION = M.end; $('kick').textContent = M.kicker;  $('ill').textContent = WORLD.note || 'VALUES ILLUSTRATIVE'
+$('bar').innerHTML = STEPS.map(() => '<div class="seg"><i></i></div>').join(''); $('labs').innerHTML = STEPS.map(([n]) => `<span>${n}</span>`).join('')
+const bot = await Robot($('bot'), { fx: 705, fy: 1715, sw: 215 })   // bigger, toward the right, clear of Instagram's like/comment/share column (x > ~960)
+await document.fonts.ready
+const issues = []
+for (const l of M.lines) {
+  l.chunks = []; let a = 0, n = 0
+  l.words.forEach((w, i) => { n += w.w.length + 1; if (/[.,:?!]$/.test(w.w) || n > 18 || i === l.words.length - 1) { l.chunks.push([a, i]); a = i + 1; n = 0 } })
+  for (const [a2, b2] of l.chunks) { $('cap').innerHTML = l.words.slice(a2, b2 + 1).map(w => `<span>${w.w}</span>`).join(' '); if ($('cap').offsetHeight > 200) issues.push('caption chunk too tall: ' + l.words.slice(a2, b2 + 1).map(w => w.w).join(' ')) }
+}
+$('cap').dataset.k = ''
+// overlap guard: step through the whole timeline; no moving object (WORLD.movers) may touch a solid (WORLD.solids).
+// Each mover is a sphere, tested against every solid mesh's own (rotated) bounding box, so tilted parts do not give false alarms.
+const seen = new Set(), sph = new THREE.Sphere(), inv = new THREE.Matrix4(), bb = new THREE.Box3(), c = V(0, 0, 0)
+for (let t = 0; t < M.end; t += .1) {
+  let li = 0; M.lines.forEach((l, i) => { if (t >= l.t0 - .05) li = i })
+  const L = M.lines[li], s = t - L.t0, [cp, ct] = shot(L.scene, Math.max(s, 0), L.end - L.t0); cam.position.copy(cp); cam.lookAt(ct)
+  WORLD.update(t, L.scene, s, L.end - L.t0, cam, L); scene.updateMatrixWorld(true)
+  for (const m of WORLD.movers || []) {
+    if (!m.visible || m.scale.x < .05) continue
+    // only the parts you can see (hidden lock, invisible shield and glows don't count)
+    bb.makeEmpty(); m.traverseVisible(o => { if (o.isMesh && !o.material.wireframe && (o.material.opacity ?? 1) > .05) bb.expandByObject(o, false) })
+    if (bb.isEmpty()) continue; bb.getBoundingSphere(sph); sph.radius *= .8
+    for (const so of WORLD.solids || []) so.traverseVisible(o => {
+      if (!o.isMesh || !o.geometry || o.material.wireframe || (o.material.opacity ?? 1) <= .05) return
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox()
+      inv.copy(o.matrixWorld).invert(); c.copy(sph.center).applyMatrix4(inv); const k = o.matrixWorld.getMaxScaleOnAxis()
+      if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere()
+      const dist = o.geometry.type === 'SphereGeometry' ? Math.max(0, c.distanceTo(o.geometry.boundingSphere.center) - o.geometry.boundingSphere.radius) : o.geometry.boundingBox.distanceToPoint(c)
+      if (dist * k < sph.radius) { const key = m.name + '|' + so.name; if (!seen.has(key)) { seen.add(key); issues.push(`overlap: ${m.name} touches ${so.name} (${o.name || o.geometry.type}) at ${t.toFixed(1)}s`) } }
+    })
+  }
+}
+renderer.compile(scene, cam)
+window.LAYOUT = issues; render(0); window.READY = true
+</script></body></html>

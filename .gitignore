@@ -7,3 +7,14 @@ hw-*/
 qz-*/
 character/
 __pycache__/
+sh-*/
+hm-*/
+cgi-*-frames/
+cgi-*-overlay/
+cgi/tex/photo.png
+*.mp4
+# downloaded models (see models/CREDITS.txt), not shipped
+models/*
+!models/CREDITS.txt
+!models/cardboard_box_01/
+!models/hdri/
